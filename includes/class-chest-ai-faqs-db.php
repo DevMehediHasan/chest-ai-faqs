@@ -31,11 +31,25 @@ class ChestAIFaqs_DB
     }
 
     // Insert a new FAQ
-    public function insert_faq($question, $answer, $show_on_home, $position = '')
-    {
-        global $wpdb;
+public function insert_faq($question, $answer, $show_on_home, $position = '')
+{
+    global $wpdb;
 
-        // Insert FAQ with position (which defaults to empty string)
+    // Check if the FAQ already exists based on the question
+    $existing_faq = $this->get_faq_by_question($question);
+
+    if ($existing_faq) {
+        // If FAQ exists, update it
+        $this->update_faq(
+            $existing_faq['id'], // Use the ID of the existing FAQ to update
+            $question,
+            $answer,
+            $show_on_home,
+            $position
+        );
+        error_log("Updated FAQ: $question");
+    } else {
+        // If FAQ does not exist, insert a new one
         $wpdb->insert(
             $this->table_name,
             [
@@ -45,7 +59,9 @@ class ChestAIFaqs_DB
                 'position' => sanitize_text_field($position),  // Insert the position field
             ]
         );
+        error_log("Inserted new FAQ: $question");
     }
+}
 
     // Update an existing FAQ
     public function update_faq($id, $question, $answer, $show_on_home, $position)
@@ -76,22 +92,24 @@ class ChestAIFaqs_DB
         );
     }
 
-    // Get all FAQs (with optional search, pagination)
-    public function get_faqs($search = '', $paged = 1, $per_page = 10)
+    public function get_faqs($search = '', $paged = 1, $per_page = 10, $orderby = 'show_on_home', $order = 'DESC')
     {
         global $wpdb;
-
+    
         $offset = ($paged - 1) * $per_page;
-
+    
         $sql = "SELECT * FROM {$this->table_name}";
         if (!empty($search)) {
             $like = '%' . $wpdb->esc_like($search) . '%';
             $sql .= $wpdb->prepare(" WHERE question LIKE %s OR answer LIKE %s", $like, $like);
         }
-        $sql .= " ORDER BY id DESC LIMIT %d OFFSET %d";
-
-        return $wpdb->get_results($wpdb->prepare($sql, $per_page, $offset), ARRAY_A);
+    
+        // Dynamically change the ORDER BY clause based on the selected field and order
+        $sql .= $wpdb->prepare(" ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d", $per_page, $offset);
+    
+        return $wpdb->get_results($sql, ARRAY_A);
     }
+    
 
     // Get total count of FAQs (for pagination)
     public function get_faqs_count($search = '')

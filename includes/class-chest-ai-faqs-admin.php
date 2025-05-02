@@ -164,10 +164,14 @@ class ChestAIFaqs_Admin
     {
         $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
         $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
-        $per_page = 10;
+        $per_page = 20;
+
+        $orderby = isset($_GET['orderby']) ? sanitize_text_field($_GET['orderby']) : 'id'; // Default sort by id
+        $order = isset($_GET['order']) ? sanitize_text_field($_GET['order']) : 'DESC'; // Default order is descending
+
 
         $total = $this->db->get_faqs_count($search);
-        $faqs = $this->db->get_faqs($search, $paged, $per_page);
+        $faqs = $this->db->get_faqs($search, $paged, $per_page, $orderby, $order);
 
         $base_url = admin_url('admin.php?page=chest-ai-faqs-manage');
 
@@ -208,9 +212,17 @@ class ChestAIFaqs_Admin
                         <tr>
                             <th><input type="checkbox" id="select_all"></th>
                             <th>ID</th>
-                            <th>Question</th>
+                            <th>
+                                <a href="<?php echo esc_url(add_query_arg(['orderby' => 'question', 'order' => ($orderby == 'question' && $order == 'ASC') ? 'DESC' : 'ASC'], $base_url)); ?>">
+                                    Title <?php echo ($orderby == 'question') ? ($order == 'ASC' ? '▲' : '▼') : ''; ?>
+                                </a>
+                            </th>
                             <th>Answer</th>
-                            <th>Show on Home</th>
+                            <th>
+                                <a href="<?php echo esc_url(add_query_arg(['orderby' => 'show_on_home', 'order' => ($orderby == 'show_on_home' && $order == 'ASC') ? 'DESC' : 'ASC'], $base_url)); ?>">
+                                    Show on Home <?php echo ($orderby == 'show_on_home') ? ($order == 'ASC' ? '▲' : '▼') : ''; ?>
+                                </a>
+                            </th>
                             <th>Position</th>
                             <th>Actions</th>
                         </tr>
@@ -429,47 +441,52 @@ class ChestAIFaqs_Admin
 
 
     public function import_faqs()
-{
-    if (!current_user_can('manage_options') || !check_admin_referer('import_faqs_nonce')) {
-        wp_die('Unauthorized');
-    }
+    {
+        if (!current_user_can('manage_options') || !check_admin_referer('import_faqs_nonce')) {
+            wp_die('Unauthorized');
+        }
 
-    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
-        wp_die('Upload failed.');
-    }
+        if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
+            wp_die('Upload failed.');
+        }
 
-    $file = $_FILES['csv_file']['tmp_name'];
-    $handle = fopen($file, 'r');
+        $file = $_FILES['csv_file']['tmp_name'];
+        $handle = fopen($file, 'r');
 
-    if (!$handle) {
-        wp_die('Cannot open uploaded file.');
-    }
+        if (!$handle) {
+            wp_die('Cannot open uploaded file.');
+        }
 
-    // Skip header line
-    fgetcsv($handle);
+        // Skip the header line
+        fgetcsv($handle);
 
-    while (($row = fgetcsv($handle)) !== false) {
-        if (count($row) >= 5) {
-            $question = sanitize_text_field($row[1]);
-            $answer = sanitize_textarea_field($row[2]);
-            $show_on_home = intval($row[3]);
-            $position = sanitize_text_field($row[4]);
+        while (($row = fgetcsv($handle)) !== false) {
+            if (count($row) >= 2) {  // Only need the first two columns (question, answer)
+                $question = sanitize_text_field($row[0]); // Assuming the question is in the first column
+                $answer = sanitize_textarea_field($row[1]); // Assuming the answer is in the second column
 
-            // Check if the FAQ already exists based on the question
-            $existing_faq = $this->db->get_faq_by_question($question);
+                // Check if the FAQ already exists based on the question
+                $existing_faq = $this->db->get_faq_by_question($question);
 
-            if (!$existing_faq) {
-                // Insert FAQ if it doesn't exist
-                $this->db->insert_faq($question, $answer, $show_on_home, $position);
+                if ($existing_faq) {
+                    // Log skipped duplicate FAQ
+                    error_log('Skipped duplicate FAQ: ' . $question);
+                } else {
+                    // Insert FAQ if it doesn't exist
+                    $this->db->insert_faq($question, $answer, 0, ''); // Default show_on_home as 0, position as ''
+                    error_log('Inserted new FAQ: ' . $question);
+                }
+            } else {
+                // Log invalid row
+                error_log('Skipped invalid row: ' . print_r($row, true));
             }
         }
+
+        fclose($handle);
+
+        wp_redirect(admin_url('admin.php?page=chest-ai-faqs-manage&success=1'));
+        exit;
     }
-
-    fclose($handle);
-
-    wp_redirect(admin_url('admin.php?page=chest-ai-faqs-manage&success=1'));
-    exit;
-}
 }
 // This class handles the admin side of the plugin, including displaying the FAQ management page, adding/editing FAQs, and handling form submissions.
 // It uses the ChestAIFaqs_DB class to interact with the database.
